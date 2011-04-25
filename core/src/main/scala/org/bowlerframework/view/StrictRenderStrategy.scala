@@ -4,6 +4,7 @@ import org.bowlerframework.Request
 import java.util.StringTokenizer
 import scalate.ScalateViewRenderer
 import org.bowlerframework.exception.HttpException
+import util.matching.Regex
 
 /**
  * Strict Render Strategy that adheres strictly to HTTP (not suitable for general web use where Internet Explorer
@@ -43,5 +44,45 @@ class StrictRenderStrategy(mappings: Map[String, () => ViewRenderer] =
 
     }
     throw new HttpException(406)
+  }
+}
+
+import util.parsing.combinator._
+
+class AcceptHeaderParser extends JavaTokenParsers {
+  lazy val accept: Parser[List[AcceptHeader]] = rep1sep(acceptEntry, ",")
+  lazy val acceptEntry: Parser[AcceptHeader] = (mediaType <~ "/") ~ mediaSubType ~ opt(qualityFactor) ^^ {
+    case t ~ st ~ Some(q) => AcceptHeader(t, st, q.toFloat)
+    case t ~ st ~ None => AcceptHeader(t, st, 1.0F)
+  }
+  lazy val wordRegex = """[\w+\-*]*""".r
+  lazy val mediaType = wordRegex
+  lazy val mediaSubType = wordRegex
+  lazy val qualityFactor = ";" ~> "q" ~> "=" ~> floatingPointNumber
+
+  def parseAndOrder(input: String): List[AcceptHeader] = {
+    parseAll(accept, input).getOrElse(Nil).sortWith((a1, a2) => (a1 > a2))
+  }
+}
+
+case class AcceptHeader(mediaType: String, mediaSubType: String, qualityFactor: Float) extends Ordered[AcceptHeader] {
+  def compare(that: AcceptHeader): Int = {
+     if (this.qualityFactor > that.qualityFactor) 1
+     else if (this.qualityFactor < that.qualityFactor) -1
+     else (mediaType, mediaSubType, that.mediaType, that.mediaSubType) match {
+       case ("*", _, _, _) => -1
+       case (_, _, _, "*") => 1
+       case (_, "*", _, _) => -1
+       case (_, _, "*", _) => 1
+       case (_, _, _, _) => 0
+     }
+  }
+}
+
+object AcceptHeaderTest {
+  def main(args: Array[String]) {
+    println(new AcceptHeaderParser().parseAndOrder(""" application/html;q=0.8, text/*, text/xml, application/json;q=0.9 """))
+    println(new AcceptHeaderParser().parseAndOrder(""" audio/*; q=0.2, audio/basic """))
+    println(new AcceptHeaderParser().parseAndOrder(""" text/plain; q=0.5, text/html, text/x-dvi; q=0.8, text/x-c """))
   }
 }
