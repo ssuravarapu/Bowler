@@ -24,7 +24,7 @@ trait Request {
 
   def getHeaderNames: List[String]
 
-  def getAccept: String
+  def getAccept: Option[String]
 
   def getContentType: Option[String]
 

@@ -92,7 +92,7 @@ class BowlerHttpRequest(path: String, val request: HttpServletRequest, params: M
     return list.toList
   }
 
-  def getAccept = request.getHeader("accept")
+  def getAccept = Some(request.getHeader("accept"))
 
   def getMethod: HttpMethod = {
     if (method == null) {

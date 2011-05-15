@@ -5,6 +5,7 @@ import java.util.StringTokenizer
 import scalate.ScalateViewRenderer
 import org.bowlerframework.exception.HttpException
 import util.matching.Regex
+import util.control.Breaks
 
 /**
  * Strict Render Strategy that adheres strictly to HTTP (not suitable for general web use where Internet Explorer
@@ -19,39 +20,33 @@ class StrictRenderStrategy(mappings: Map[String, () => ViewRenderer] =
                            "application/xhtml+xml" -> {() => new ScalateViewRenderer},
                            "*/*" -> {() => new JsonViewRenderer})) extends RenderStrategy{
   def resolveViewRenderer(request: Request): ViewRenderer = {
-    val accept = {
-      try{
-        request.getAccept
-      }catch{
-        case e: NoSuchElementException => throw new HttpException(406)
+    request.getAccept match {
+      case Some(a) => {
+        val orderedMediaTypes = AcceptHeaderParser.parseAndOrder(a.toLowerCase);
+        println("orderedMediaTypes: " + orderedMediaTypes)
+        for(mt <- orderedMediaTypes) {
+          println("type: " + mt.mediaType + "/" + mt.mediaSubType)
+          mappings.get(mt.mediaType + "/" + mt.mediaSubType) match {
+            case Some(renderer) => {
+              println("Matched!")
+              return renderer.apply()
+            }
+            case None => println("No match")
+          }
+        }
+        throw new HttpException(406)
       }
+      case None => new ScalateViewRenderer
     }
-
-    val tokenizer = {
-      if(accept.indexOf(";") > 0)
-        new StringTokenizer(accept.substring(0, accept.indexOf(";")).toLowerCase, ",")
-      else
-        new StringTokenizer(accept.toLowerCase, ",")
-    }
-
-    while(tokenizer.hasMoreTokens){
-      val acceptContentType = tokenizer.nextToken.trim
-      val opt = mappings.get(acceptContentType)
-      opt match{
-        case Some(viewRenderer) => return viewRenderer()
-        case None => {}
-      }
-
-    }
-    throw new HttpException(406)
   }
 }
 
 import util.parsing.combinator._
 
-class AcceptHeaderParser extends JavaTokenParsers {
+object AcceptHeaderParser extends JavaTokenParsers {
   lazy val accept: Parser[List[AcceptHeader]] = rep1sep(acceptEntry, ",")
-  lazy val acceptEntry: Parser[AcceptHeader] = (mediaType <~ "/") ~ mediaSubType ~ opt(qualityFactor) ^^ {
+  lazy val acceptEntry: Parser[AcceptHeader] =
+    (mediaType <~ "/") ~ mediaSubType ~ opt(qualityFactor) ^^ {
     case t ~ st ~ Some(q) => AcceptHeader(t, st, q.toFloat)
     case t ~ st ~ None => AcceptHeader(t, st, 1.0F)
   }
@@ -63,6 +58,9 @@ class AcceptHeaderParser extends JavaTokenParsers {
   def parseAndOrder(input: String): List[AcceptHeader] = {
     parseAll(accept, input).getOrElse(Nil).sortWith((a1, a2) => (a1 > a2))
   }
+
+  def parse(input:String): List[AcceptHeader] = parseAll(accept, input).getOrElse(Nil)
+
 }
 
 case class AcceptHeader(mediaType: String, mediaSubType: String, qualityFactor: Float) extends Ordered[AcceptHeader] {
@@ -81,8 +79,8 @@ case class AcceptHeader(mediaType: String, mediaSubType: String, qualityFactor: 
 
 object AcceptHeaderTest {
   def main(args: Array[String]) {
-    println(new AcceptHeaderParser().parseAndOrder(""" application/html;q=0.8, text/*, text/xml, application/json;q=0.9 """))
-    println(new AcceptHeaderParser().parseAndOrder(""" audio/*; q=0.2, audio/basic """))
-    println(new AcceptHeaderParser().parseAndOrder(""" text/plain; q=0.5, text/html, text/x-dvi; q=0.8, text/x-c """))
+    println(AcceptHeaderParser.parse(""" application/html;q=0.8, text/*, text/xml, application/json;q=0.9 """))
+    println(AcceptHeaderParser.parse(""" audio/*; q=0.2, audio/basic """))
+    println(AcceptHeaderParser.parse(""" text/plain; q=0.5, text/html, text/x-dvi; q=0.8, text/x-c """))
   }
 }
